@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Proxy</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 30%, #1e293b, #0b1020 70%);
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+      color: #e5e7eb;
+    }
+    main { width: 100%; max-width: 640px; padding: 0 20px; text-align: center; }
+    h1 { font-size: 2.2rem; font-weight: 600; margin: 0 0 28px; letter-spacing: .02em; }
+    form {
+      display: flex;
+      gap: 8px;
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 999px;
+      padding: 6px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    form:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,.25); }
+    input {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: inherit;
+      font-size: 1rem;
+      padding: 12px 16px;
+    }
+    input::placeholder { color: #64748b; }
+    button {
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      padding: 0 24px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover { background: #2563eb; }
+    p { color: #64748b; font-size: .85rem; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Web Proxy</h1>
+    <form id="f">
+      <input id="u" type="text" placeholder="URL を入力（例: example.com）" autocomplete="off" autofocus>
+      <button type="submit">移動</button>
+    </form>
+    <p>URL 以外を入力すると DuckDuckGo で検索します</p>
+  </main>
+  <script>
+    document.getElementById('f').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var v = document.getElementById('u').value.trim();
+      if (!v) return;
+      var url;
+      if (/^https?:\/\//i.test(v)) url = v;
+      else if (/^[^\s]+\.[^\s]{2,}$/.test(v) || /^localhost/.test(v)) url = 'https://' + v;
+      else url = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(v);
+      location.href = '/proxy?url=' + encodeURIComponent(url);
+    });
+  </script>
+</body>
+</html>
