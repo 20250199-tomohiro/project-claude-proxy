@@ -3,27 +3,17 @@ const cheerio = require('cheerio');
 const dns = require('dns').promises;
 const net = require('net');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.disable('x-powered-by');
 
-// index.html は public/ 内でもリポジトリ直下でも動くようにする
-const INDEX_CANDIDATES = [
-  path.join(__dirname, 'public', 'index.html'),
-  path.join(__dirname, 'index.html'),
-];
-const INDEX_FILE = INDEX_CANDIDATES.find(p => fs.existsSync(p));
-console.log('index.html:', INDEX_FILE || '見つかりません');
+// トップページは server.js に埋め込み（ファイルの置き場所に依存しない）
+const INDEX_HTML = "<!doctype html>\n<html lang=\"ja\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Web Proxy</title>\n  <style>\n    :root { color-scheme: dark; }\n    * { box-sizing: border-box; }\n    body {\n      margin: 0;\n      min-height: 100vh;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      background: radial-gradient(circle at 50% 30%, #1e293b, #0b1020 70%);\n      font-family: system-ui, -apple-system, \"Hiragino Sans\", \"Yu Gothic\", sans-serif;\n      color: #e5e7eb;\n    }\n    main { width: 100%; max-width: 640px; padding: 0 20px; text-align: center; }\n    h1 { font-size: 2.2rem; font-weight: 600; margin: 0 0 28px; letter-spacing: .02em; }\n    form {\n      display: flex;\n      gap: 8px;\n      background: #111827;\n      border: 1px solid #334155;\n      border-radius: 999px;\n      padding: 6px;\n      transition: border-color .15s, box-shadow .15s;\n    }\n    form:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,.25); }\n    input {\n      flex: 1;\n      min-width: 0;\n      background: transparent;\n      border: none;\n      outline: none;\n      color: inherit;\n      font-size: 1rem;\n      padding: 12px 16px;\n    }\n    input::placeholder { color: #64748b; }\n    button {\n      background: #3b82f6;\n      color: #fff;\n      border: none;\n      border-radius: 999px;\n      padding: 0 24px;\n      font-size: 1rem;\n      cursor: pointer;\n    }\n    button:hover { background: #2563eb; }\n    p { color: #64748b; font-size: .85rem; margin-top: 18px; }\n  </style>\n</head>\n<body>\n  <main>\n    <h1>Web Proxy</h1>\n    <form id=\"f\">\n      <input id=\"u\" type=\"text\" placeholder=\"URL を入力（例: example.com）\" autocomplete=\"off\" autofocus>\n      <button type=\"submit\">移動</button>\n    </form>\n    <p>URL 以外を入力すると DuckDuckGo で検索します</p>\n  </main>\n  <script>\n    document.getElementById('f').addEventListener('submit', function (e) {\n      e.preventDefault();\n      var v = document.getElementById('u').value.trim();\n      if (!v) return;\n      var url;\n      if (/^https?:\\/\\//i.test(v)) url = v;\n      else if (/^[^\\s]+\\.[^\\s]{2,}$/.test(v) || /^localhost/.test(v)) url = 'https://' + v;\n      else url = 'https://duckduckgo.com/html/?q=' + encodeURIComponent(v);\n      location.href = '/proxy?url=' + encodeURIComponent(url);\n    });\n  </script>\n</body>\n</html>\n";
 
-app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
-  if (!INDEX_FILE) {
-    return res.status(500).send('index.html が見つかりません。public/index.html に置いてください。');
-  }
-  res.sendFile(INDEX_FILE);
+  res.type('html').send(INDEX_HTML);
 });
 app.use('/proxy', express.raw({ type: () => true, limit: '10mb' }));
 
