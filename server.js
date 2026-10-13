@@ -115,10 +115,126 @@ const SHIM = `
 })();
 `;
 
+// ページ上部に重ねて表示するアドレスバー（戻る/進む/再読み込み/URL入力）
+const BAR = String.raw`
+(function(){
+  if (window.top !== window) return;
+  var B = document.currentScript.getAttribute('data-base');
+  function R(v){
+    v = v.trim();
+    if (!v) return '';
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^[^\s]+\.[^\s]{2,}$/.test(v) || /^localhost/.test(v)) return 'https://' + v;
+    return 'https://duckduckgo.com/html/?q=' + encodeURIComponent(v);
+  }
+  function go(u){ location.href = '/proxy?url=' + encodeURIComponent(u); }
+  function mount(){
+    if (document.getElementById('__px_bar')) return;
+    var host = document.createElement('div');
+    host.id = '__px_bar';
+    host.style.cssText = 'all:initial;position:fixed;top:0;left:0;right:0;z-index:2147483647;';
+    var root = host.attachShadow({mode:'open'});
+    root.innerHTML =
+      '<style>' +
+      '.bar{display:flex;gap:6px;align-items:center;height:42px;padding:5px 8px;box-sizing:border-box;' +
+      'background:#111827;border-bottom:1px solid #334155;font-family:system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35)}' +
+      '.bar.off{display:none}' +
+      'button{background:#1f2937;color:#e5e7eb;border:1px solid #334155;border-radius:8px;min-width:32px;height:30px;' +
+      'font-size:14px;cursor:pointer;padding:0 8px}' +
+      'button:hover{background:#374151}' +
+      'button.go{background:#3b82f6;border-color:#3b82f6;color:#fff}' +
+      'input{flex:1;min-width:0;height:30px;box-sizing:border-box;background:#0b1020;color:#e5e7eb;' +
+      'border:1px solid #334155;border-radius:999px;padding:0 14px;font-size:14px;outline:none}' +
+      'input:focus{border-color:#60a5fa}' +
+      '.tab{display:none;position:fixed;top:0;right:10px;height:22px;min-width:0;padding:0 10px;border-radius:0 0 8px 8px;' +
+      'font-size:11px;background:#111827}' +
+      '.tab.on{display:block}' +
+      '@media print{:host{display:none}}' +
+      '</style>' +
+      '<form class="bar" id="bar">' +
+      '<button type="button" id="back" title="戻る">&#9664;</button>' +
+      '<button type="button" id="fwd" title="進む">&#9654;</button>' +
+      '<button type="button" id="rel" title="再読み込み">&#8635;</button>' +
+      '<button type="button" id="home" title="トップへ">&#8962;</button>' +
+      '<input id="u" type="text" autocomplete="off" spellcheck="false" placeholder="URL を入力 / 検索">' +
+      '<button type="submit" class="go">移動</button>' +
+      '<button type="button" id="hide" title="バーを隠す">&#10005;</button>' +
+      '</form>' +
+      '<button type="button" class="tab" id="tab" title="バーを表示">&#9660;</button>';
+
+    var bar = root.getElementById('bar'), tab = root.getElementById('tab'), input = root.getElementById('u');
+    input.value = B;
+    input.addEventListener('focus', function(){ input.select(); });
+    root.getElementById('back').onclick = function(){ history.back(); };
+    root.getElementById('fwd').onclick = function(){ history.forward(); };
+    root.getElementById('rel').onclick = function(){ location.reload(); };
+    root.getElementById('home').onclick = function(){ location.href = '/'; };
+    bar.addEventListener('submit', function(e){
+      e.preventDefault();
+      var u = R(input.value);
+      if (u) go(u);
+    });
+    function setHidden(h){
+      bar.classList.toggle('off', h);
+      tab.classList.toggle('on', h);
+      try { sessionStorage.setItem('px_bar_hidden', h ? '1' : '0'); } catch(e) {}
+    }
+    root.getElementById('hide').onclick = function(){ setHidden(true); };
+    tab.onclick = function(){ setHidden(false); };
+    var hidden = false;
+    try { hidden = sessionStorage.getItem('px_bar_hidden') === '1'; } catch(e) {}
+    setHidden(hidden);
+    document.documentElement.appendChild(host);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+  else mount();
+})();
+`;
+
+/* ---------- 文字コード判定（Shift_JIS / EUC-JP などの日本語サイト対策） ---------- */
+function declaredCharset(buf, contentType, kind) {
+  const h = /charset\s*=\s*["']?([\w.:-]+)/i.exec(contentType || '');
+  if (h) return h[1];
+  const head = buf.subarray(0, 4096).toString('latin1');
+  if (kind === 'html') {
+    const m = /<meta[^>]+charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(head);
+    if (m) return m[1];
+  } else if (kind === 'css') {
+    const m = /^@charset\s+["']([\w.:-]+)["']/i.exec(head);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function decodeBody(buf, contentType, kind) {
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(buf);
+  }
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf);
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder('utf-16be').decode(buf);
+
+  const label = declaredCharset(buf, contentType, kind);
+  if (label) {
+    try {
+      return new TextDecoder(label).decode(buf);
+    } catch { /* 未知のラベル → 下の自動判定へ */ }
+  }
+  // 宣言が無い場合: UTF-8として厳密に読めなければ Shift_JIS とみなす
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    try { return new TextDecoder('shift_jis').decode(buf); } catch { /* fallthrough */ }
+  }
+  return new TextDecoder('utf-8').decode(buf);
+}
+
 function rewriteHtml(html, base) {
   const $ = cheerio.load(html);
 
   $('base').remove();
+  // 出力は常にUTF-8にするので、元の文字コード宣言は取り除く
+  $('meta[charset]').remove();
+  $('meta[http-equiv]').filter((_, el) => ($(el).attr('http-equiv') || '').toLowerCase() === 'content-type').remove();
   $('meta[http-equiv]').each((_, el) => {
     const h = ($(el).attr('http-equiv') || '').toLowerCase();
     if (h === 'content-security-policy') $(el).remove();
@@ -153,9 +269,12 @@ function rewriteHtml(html, base) {
     $(el).attr('style', rewriteCss($(el).attr('style'), base));
   });
 
-  const shimTag = `<script data-base="${base.replace(/"/g, '&quot;')}">${SHIM}</script>`;
-  if ($('head').length) $('head').prepend(shimTag);
-  else $.root().prepend(shimTag);
+  const baseAttr = base.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const shimTag = `<script data-base="${baseAttr}">${SHIM}</script>`;
+  const barTag = `<script data-base="${baseAttr}">${BAR}</script>`;
+  const injected = '<meta charset="utf-8">' + shimTag + barTag;
+  if ($('head').length) $('head').prepend(injected);
+  else $.root().prepend(injected);
 
   return $.html();
 }
@@ -213,12 +332,13 @@ app.all('/proxy', async (req, res) => {
 
     const type = (upstream.headers.get('content-type') || '').toLowerCase();
     if (type.includes('text/html')) {
-      const html = await upstream.text();
+      const html = decodeBody(Buffer.from(await upstream.arrayBuffer()), type, 'html');
       res.setHeader('content-type', 'text/html; charset=utf-8');
       return res.send(rewriteHtml(html, target.href));
     }
     if (type.includes('text/css')) {
-      const css = await upstream.text();
+      const css = decodeBody(Buffer.from(await upstream.arrayBuffer()), type, 'css');
+      res.setHeader('content-type', 'text/css; charset=utf-8');
       return res.send(rewriteCss(css, target.href));
     }
     const buf = Buffer.from(await upstream.arrayBuffer());
